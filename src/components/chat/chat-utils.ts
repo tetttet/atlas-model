@@ -31,6 +31,18 @@ export function isThemeMode(value: unknown): value is ThemeMode {
   return value === "light" || value === "dark";
 }
 
+export function getDeviceTheme(): ThemeMode {
+  if (
+    typeof window !== "undefined" &&
+    typeof window.matchMedia === "function" &&
+    window.matchMedia("(prefers-color-scheme: dark)").matches
+  ) {
+    return "dark";
+  }
+
+  return "light";
+}
+
 export function isChatMessage(value: unknown): value is ChatMessage {
   if (!value || typeof value !== "object") {
     return false;

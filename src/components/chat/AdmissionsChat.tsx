@@ -6,6 +6,7 @@ import { ChatComposer } from "./ChatComposer";
 import { ChatHeader } from "./ChatHeader";
 import { ChatMessages } from "./ChatMessages";
 import { ChatSidebar } from "./ChatSidebar";
+import { DeleteConfirmationDialog } from "./DeleteConfirmationDialog";
 import {
   initialChat,
   maxStoredChats,
@@ -17,7 +18,22 @@ import {
   writeChatHydrationState,
 } from "./chat-storage";
 import type { ChatSession, ThemeMode } from "./chat-types";
-import { createEmptyChat, createId, titleFromMessage } from "./chat-utils";
+import {
+  createEmptyChat,
+  createId,
+  getDeviceTheme,
+  titleFromMessage,
+} from "./chat-utils";
+
+type DeleteConfirmation =
+  | {
+      chatId: string;
+      kind: "chat";
+      title: string;
+    }
+  | {
+      kind: "all";
+    };
 
 export function AdmissionsChat() {
   const [chats, setChats] = useState<ChatSession[]>([initialChat]);
@@ -30,7 +46,10 @@ export function AdmissionsChat() {
   const [isHydrated, setIsHydrated] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [theme, setTheme] = useState<ThemeMode>("light");
+  const [theme, setTheme] = useState<ThemeMode | null>(null);
+  const [hasThemeOverride, setHasThemeOverride] = useState(false);
+  const [deleteConfirmation, setDeleteConfirmation] =
+    useState<DeleteConfirmation | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -48,6 +67,20 @@ export function AdmissionsChat() {
   const hasAnyLoadingChat = Boolean(loadingChatId);
   const activeError =
     error && error.chatId === activeChat.id ? error.message : "";
+  const resolvedTheme = theme ?? "light";
+  const deleteConfirmationCopy =
+    deleteConfirmation?.kind === "all"
+      ? {
+          confirmLabel: "Удалить все",
+          description:
+            "История переписок будет очищена. Это действие нельзя отменить.",
+          title: "Удалить все чаты?",
+        }
+      : {
+          confirmLabel: "Удалить чат",
+          description: `Чат «${deleteConfirmation?.title ?? "Без названия"}» исчезнет из истории. Это действие нельзя отменить.`,
+          title: "Удалить этот чат?",
+        };
 
   const chips = useMemo(() => {
     const lastAssistant = [...activeChat.messages]
@@ -69,7 +102,11 @@ export function AdmissionsChat() {
   }
 
   function toggleTheme() {
-    setTheme((current) => (current === "dark" ? "light" : "dark"));
+    setHasThemeOverride(true);
+    setTheme((current) => {
+      const activeTheme = current ?? getDeviceTheme();
+      return activeTheme === "dark" ? "light" : "dark";
+    });
   }
 
   function createNewChat() {
@@ -86,6 +123,20 @@ export function AdmissionsChat() {
     setInput("");
     setError(null);
     setIsSidebarOpen(false);
+  }
+
+  function requestDeleteChat(chatId: string) {
+    const chatToDelete = chats.find((chat) => chat.id === chatId);
+
+    if (!chatToDelete) {
+      return;
+    }
+
+    setDeleteConfirmation({
+      chatId,
+      kind: "chat",
+      title: chatToDelete.title,
+    });
   }
 
   function deleteChat(chatId: string) {
@@ -108,6 +159,10 @@ export function AdmissionsChat() {
     setError((current) => (current?.chatId === chatId ? null : current));
   }
 
+  function requestClearAllChats() {
+    setDeleteConfirmation({ kind: "all" });
+  }
+
   function clearAllChats() {
     const chat = createEmptyChat(0);
     setChats([chat]);
@@ -115,6 +170,24 @@ export function AdmissionsChat() {
     setInput("");
     setError(null);
     setLoadingChatId(null);
+  }
+
+  function cancelDeleteConfirmation() {
+    setDeleteConfirmation(null);
+  }
+
+  function confirmDelete() {
+    if (!deleteConfirmation) {
+      return;
+    }
+
+    if (deleteConfirmation.kind === "chat") {
+      deleteChat(deleteConfirmation.chatId);
+    } else {
+      clearAllChats();
+    }
+
+    setDeleteConfirmation(null);
   }
 
   useEffect(() => {
@@ -125,6 +198,10 @@ export function AdmissionsChat() {
   }, [activeChat.id, activeChat.messages.length, isLoading]);
 
   useEffect(() => {
+    if (!theme) {
+      return;
+    }
+
     document.documentElement.dataset.chatTheme = theme;
     document.documentElement.style.colorScheme = theme;
 
@@ -154,10 +231,10 @@ export function AdmissionsChat() {
       }
 
       const stored = readChatHydrationState();
+      const storedTheme = stored.theme;
 
-      if (stored.theme) {
-        setTheme(stored.theme);
-      }
+      setTheme(storedTheme ?? getDeviceTheme());
+      setHasThemeOverride(Boolean(storedTheme));
 
       if (stored.chats?.length) {
         setChats(stored.chats);
@@ -173,6 +250,25 @@ export function AdmissionsChat() {
   }, []);
 
   useEffect(() => {
+    if (
+      !isHydrated ||
+      hasThemeOverride ||
+      typeof window === "undefined" ||
+      typeof window.matchMedia !== "function"
+    ) {
+      return;
+    }
+
+    const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
+    const syncTheme = () => setTheme(getDeviceTheme());
+
+    syncTheme();
+    mediaQuery.addEventListener("change", syncTheme);
+
+    return () => mediaQuery.removeEventListener("change", syncTheme);
+  }, [hasThemeOverride, isHydrated]);
+
+  useEffect(() => {
     if (!isHydrated) {
       return;
     }
@@ -180,9 +276,9 @@ export function AdmissionsChat() {
     writeChatHydrationState({
       activeChatId,
       chats,
-      theme,
+      theme: hasThemeOverride ? theme : null,
     });
-  }, [activeChatId, chats, isHydrated, theme]);
+  }, [activeChatId, chats, hasThemeOverride, isHydrated, theme]);
 
   async function sendMessage(value: string) {
     const text = value.trim();
@@ -281,23 +377,23 @@ export function AdmissionsChat() {
   return (
     <section
       className="chat-shell relative flex h-full min-h-0 w-full overflow-hidden bg-[var(--app-bg)] text-[var(--text)] transition-colors duration-300"
-      data-chat-theme={theme}
-      style={{ colorScheme: theme }}
+      data-chat-theme={theme ?? undefined}
+      style={theme ? { colorScheme: theme } : undefined}
     >
       <ChatSidebar
         activeChatId={activeChat.id}
         chats={orderedChats}
         isOpen={isSidebarOpen}
         isSettingsOpen={isSettingsOpen}
-        onClearAllChats={clearAllChats}
+        onClearAllChats={requestClearAllChats}
         onClose={closeSidebar}
         onCloseSettings={() => setIsSettingsOpen(false)}
         onCreateChat={createNewChat}
-        onDeleteChat={deleteChat}
+        onDeleteChat={requestDeleteChat}
         onSelectChat={selectChat}
         onToggleSettings={() => setIsSettingsOpen((current) => !current)}
         onToggleTheme={toggleTheme}
-        theme={theme}
+        theme={resolvedTheme}
       />
 
       <div className="flex h-full min-h-0 w-full flex-col overflow-hidden bg-[var(--main-bg)] transition-colors duration-300">
@@ -305,7 +401,7 @@ export function AdmissionsChat() {
           activeTitle={activeChat.title}
           onOpenSidebar={() => setIsSidebarOpen(true)}
           onToggleTheme={toggleTheme}
-          theme={theme}
+          theme={resolvedTheme}
         />
 
         <ChatMessages
@@ -326,6 +422,15 @@ export function AdmissionsChat() {
           scrollRef={scrollRef}
         />
       </div>
+
+      <DeleteConfirmationDialog
+        confirmLabel={deleteConfirmationCopy.confirmLabel}
+        description={deleteConfirmationCopy.description}
+        isOpen={Boolean(deleteConfirmation)}
+        onCancel={cancelDeleteConfirmation}
+        onConfirm={confirmDelete}
+        title={deleteConfirmationCopy.title}
+      />
     </section>
   );
 }

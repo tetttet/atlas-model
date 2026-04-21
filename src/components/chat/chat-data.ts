@@ -22,6 +22,7 @@ export const draftChatTitles = [
 export const storageKey = productBrand.storageKey;
 export const threadsStorageKey = `${storageKey}.threads`;
 export const themeStorageKey = `${storageKey}.theme`;
+export const themeOverrideStorageKey = `${themeStorageKey}.override`;
 export const maxStoredChats = 16;
 export const maxStoredMessages = 60;
 

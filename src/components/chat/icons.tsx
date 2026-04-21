@@ -26,7 +26,12 @@ export function PlusIcon() {
 
 export function TrashIcon() {
   return (
-    <svg aria-hidden="true" className="h-4.5 w-4.5" fill="none" viewBox="0 0 24 24">
+    <svg
+      aria-hidden="true"
+      className="h-4.5 w-4.5"
+      fill="none"
+      viewBox="0 0 24 24"
+    >
       <path
         d="M4 7h16"
         stroke="currentColor"
@@ -107,7 +112,7 @@ export function SendIcon() {
   return (
     <svg aria-hidden="true" className="h-5 w-5" fill="none" viewBox="0 0 24 24">
       <path
-        d="M5 12h13m0 0-5-5m5 5-5 5"
+        d="M12 19V6m0 0-5 5m5-5 5 5"
         stroke="currentColor"
         strokeLinecap="round"
         strokeLinejoin="round"

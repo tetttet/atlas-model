@@ -72,7 +72,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="ru" className="h-full antialiased">
-      <body className="min-h-full bg-[#f7f8f4] text-[#14213d]">
+      <body className="min-h-full bg-[var(--app-bg)] text-[var(--text)]">
         {children}
       </body>
     </html>

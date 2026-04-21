@@ -3,6 +3,7 @@ import {
   maxStoredChats,
   maxStoredMessages,
   storageKey,
+  themeOverrideStorageKey,
   themeStorageKey,
   threadsStorageKey,
 } from "./chat-data";
@@ -31,9 +32,11 @@ export function readChatHydrationState(): ChatHydrationState {
   let theme: ThemeMode | null = null;
 
   try {
+    const hasStoredThemeOverride =
+      localStorage.getItem(themeOverrideStorageKey) === "true";
     const storedTheme = localStorage.getItem(themeStorageKey);
 
-    if (isThemeMode(storedTheme)) {
+    if (hasStoredThemeOverride && isThemeMode(storedTheme)) {
       theme = storedTheme;
     }
 
@@ -55,7 +58,10 @@ export function readChatHydrationState(): ChatHydrationState {
             ? stored.activeChatId
             : chats[0]?.id ?? null,
         chats: chats.length ? chats : null,
-        theme: isThemeMode(stored.theme) ? stored.theme : theme,
+        theme:
+          hasStoredThemeOverride && isThemeMode(stored.theme)
+            ? stored.theme
+            : theme,
       };
     }
 
@@ -114,7 +120,7 @@ export function writeChatHydrationState({
 }: {
   activeChatId: string;
   chats: ChatSession[];
-  theme: ThemeMode;
+  theme: ThemeMode | null;
 }) {
   const activeId = chats.some((chat) => chat.id === activeChatId)
     ? activeChatId
@@ -126,9 +132,15 @@ export function writeChatHydrationState({
       ...chat,
       messages: chat.messages.slice(-maxStoredMessages),
     })),
-    theme,
+    ...(theme ? { theme } : {}),
   };
 
   localStorage.setItem(threadsStorageKey, JSON.stringify(stored));
-  localStorage.setItem(themeStorageKey, theme);
+  if (theme) {
+    localStorage.setItem(themeStorageKey, theme);
+    localStorage.setItem(themeOverrideStorageKey, "true");
+  } else {
+    localStorage.removeItem(themeStorageKey);
+    localStorage.removeItem(themeOverrideStorageKey);
+  }
 }
