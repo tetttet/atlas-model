@@ -3,6 +3,114 @@
 :root {
   color-scheme: light;
   background: #f7f8f4;
+  --app-bg: #f7f8f4;
+  --text: #14213d;
+  --muted: #66736d;
+  --accent: #0f766e;
+  --focus-ring: rgb(15 118 110 / 14%);
+  --danger: #bd3d29;
+  --danger-soft: #fff0ec;
+  --danger-border: #efd0c9;
+  --main-bg: #ffffff;
+  --chat-bg: #f7f8f4;
+  --header-bg: rgb(255 255 255 / 94%);
+  --footer-bg: rgb(255 255 255 / 96%);
+  --border: #e1e6df;
+  --control-hover: #f0f3ef;
+  --brand-bg: #0f766e;
+  --sidebar-bg: #f8f8f5;
+  --sidebar-border: #e4e7df;
+  --sidebar-text: #30403b;
+  --sidebar-hover: #eef0ec;
+  --sidebar-active: #e8ece7;
+  --settings-bg: #ffffff;
+  --settings-row: #f4f5f2;
+  --switch-border: #d7ded6;
+  --switch-bg: #eef1ec;
+  --switch-knob: #ffffff;
+  --switch-active-icon: #14213d;
+  --switch-inactive-icon: #66736d;
+  --bubble-border: #dfe6dd;
+  --assistant-bubble: #ffffff;
+  --assistant-bubble-text: #1c2b2a;
+  --user-bubble: #202123;
+  --user-bubble-text: #ffffff;
+  --link-chip-bg: #edf7f4;
+  --link-chip-text: #0f766e;
+  --link-chip-hover: #d9f0ea;
+  --action-bg: #0f766e;
+  --action-hover: #0b5f59;
+  --chip-bg: #ecefeb;
+  --chip-border: #d7ddd5;
+  --chip-hover-bg: #e2e8e1;
+  --chip-text: #31413e;
+  --input-bg: #fbfcfb;
+  --input-focus-bg: #ffffff;
+  --input-border: #cfdad0;
+  --placeholder: #81908a;
+  --send-bg: #0f766e;
+  --send-hover: #0b5f59;
+  --send-disabled: #93aaa4;
+  --scrollbar-thumb: #cfdad0;
+  --welcome-backdrop-text: #dce2da;
+}
+
+[data-chat-theme="light"] {
+  color-scheme: light;
+}
+
+[data-chat-theme="dark"] {
+  color-scheme: dark;
+  --app-bg: #0d0d0d;
+  --text: #ececec;
+  --muted: #a0a0a0;
+  --accent: #20b486;
+  --focus-ring: rgb(32 180 134 / 18%);
+  --danger: #ff8a73;
+  --danger-soft: rgb(255 138 115 / 10%);
+  --danger-border: rgb(255 138 115 / 24%);
+  --main-bg: #212121;
+  --chat-bg: #212121;
+  --header-bg: rgb(33 33 33 / 94%);
+  --footer-bg: rgb(33 33 33 / 96%);
+  --border: #303030;
+  --control-hover: #2f2f2f;
+  --brand-bg: #0f766e;
+  --sidebar-bg: #171717;
+  --sidebar-border: #2b2b2b;
+  --sidebar-text: #d6d6d6;
+  --sidebar-hover: #242424;
+  --sidebar-active: #2f2f2f;
+  --settings-bg: #1f1f1f;
+  --settings-row: #282828;
+  --switch-border: #3a3a3a;
+  --switch-bg: #101010;
+  --switch-knob: #f4f4f4;
+  --switch-active-icon: #111111;
+  --switch-inactive-icon: #8f8f8f;
+  --bubble-border: #343434;
+  --assistant-bubble: #212121;
+  --assistant-bubble-text: #ececec;
+  --user-bubble: #2f2f2f;
+  --user-bubble-text: #f5f5f5;
+  --link-chip-bg: rgb(32 180 134 / 13%);
+  --link-chip-text: #6ee7c1;
+  --link-chip-hover: rgb(32 180 134 / 20%);
+  --action-bg: #15966f;
+  --action-hover: #20b486;
+  --chip-bg: #2f2f2f;
+  --chip-border: #3a3a3a;
+  --chip-hover-bg: #383838;
+  --chip-text: #d8d8d8;
+  --input-bg: #2f2f2f;
+  --input-focus-bg: #333333;
+  --input-border: #3a3a3a;
+  --placeholder: #a1a1a1;
+  --send-bg: #15966f;
+  --send-hover: #20b486;
+  --send-disabled: #475a54;
+  --scrollbar-thumb: #454545;
+  --welcome-backdrop-text: #343434;
 }
 
 * {
@@ -18,6 +126,8 @@ html {
 body {
   height: 100%;
   margin: 0;
+  background: var(--app-bg);
+  color: var(--text);
   overscroll-behavior: none;
   font-family:
     Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
@@ -51,8 +161,17 @@ a {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #cfdad0;
+  background: var(--scrollbar-thumb);
   border: 3px solid transparent;
   border-radius: 999px;
   background-clip: content-box;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-shell *,
+  .chat-shell *::before,
+  .chat-shell *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
 }
