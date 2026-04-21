@@ -85,8 +85,19 @@ export function ChatMessages({
 
       {isLoading ? (
         <div className="flex justify-start">
-          <div className="rounded-[22px] border border-[var(--bubble-border)] bg-[var(--assistant-bubble)] px-4 py-3 text-sm text-[var(--muted)] shadow-sm">
-            Думаю...
+          <div
+            aria-label="Ассистент печатает ответ"
+            className="rounded-[22px] border border-[var(--bubble-border)] bg-[var(--assistant-bubble)] px-4 py-3 text-sm text-[var(--muted)] shadow-sm"
+            role="status"
+          >
+            <span
+              aria-hidden="true"
+              className="flex h-6 items-center gap-1.5"
+            >
+              <span className="chat-typing-dot block h-2 w-2 rounded-full bg-[var(--muted)]" />
+              <span className="chat-typing-dot block h-2 w-2 rounded-full bg-[var(--muted)]" />
+              <span className="chat-typing-dot block h-2 w-2 rounded-full bg-[var(--muted)]" />
+            </span>
           </div>
         </div>
       ) : null}
