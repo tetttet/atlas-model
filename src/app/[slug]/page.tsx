@@ -2,6 +2,10 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { productBrand } from "@/lib/admissions/brand";
+import {
+  openGraphImage,
+  twitterImage,
+} from "@/lib/admissions/site-metadata";
 import { company, sitePages } from "@/lib/admissions/site-content";
 
 type PageProps = {
@@ -28,9 +32,30 @@ export async function generateMetadata({
     };
   }
 
+  const title = `${page.title} - ${company.name}`;
+  const url = `/${page.slug}`;
+
   return {
-    title: `${page.title} - ${company.name}`,
+    title,
     description: page.summary,
+    alternates: {
+      canonical: url,
+    },
+    openGraph: {
+      title,
+      description: page.summary,
+      url,
+      siteName: company.name,
+      images: openGraphImage,
+      locale: "ru_RU",
+      type: "website",
+    },
+    twitter: {
+      card: "summary_large_image",
+      title,
+      description: page.summary,
+      images: twitterImage,
+    },
   };
 }
 

@@ -1,4 +1,11 @@
+import type { Metadata } from "next";
 import { AdmissionsChat } from "@/components/chat/AdmissionsChat";
+
+export const metadata: Metadata = {
+  alternates: {
+    canonical: "/",
+  },
+};
 
 export default function Home() {
   return (
