@@ -1,12 +1,12 @@
-# AtlasPath Admissions MVP Architecture
+# Atlas Admissions MVP Architecture
 
 ## Product concept
 
-AtlasPath Admissions - минималистичный AI-first продукт для студентов, которые хотят поступать за границу. Первый экран - чат. Не лендинг, не перегруженный портал. Пользователь пишет вопрос и получает краткий ответ, ссылку на нужную страницу или передачу менеджеру.
+Atlas Admissions - минималистичный AI-first продукт для студентов, которые хотят поступать за границу. Первый экран - чат. Не лендинг, не перегруженный портал. Пользователь пишет вопрос и получает краткий ответ, ссылку на нужную страницу или передачу менеджеру.
 
 ## Brand
 
-Название: AtlasPath Admissions  
+Название: Atlas Admissions  
 Слоган: "Поступление за границу без хаоса, догадок и потерянных дедлайнов."  
 Стиль: чистый интерфейс, спокойные цвета, аккуратное окно чата, быстрые ответы.  
 Tone of voice: коротко, спокойно, экспертно, без обещаний гарантии.
@@ -153,7 +153,7 @@ No sensitive documents are stored in MVP memory.
 
 ## Lead profile storage
 
-MVP stores the conversation state in browser `localStorage` under `atlaspath.chat.v1`.
+MVP stores the conversation state in browser `localStorage` under `Atlas.chat.v1`.
 
 Saved fields:
 - messages, last 40 turns;

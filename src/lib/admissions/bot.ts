@@ -379,7 +379,7 @@ function buildAnswer(
 
     case "process":
       return [
-        "Процесс AtlasPath: диагностика -> выбор стран -> shortlist -> документы -> заявки -> офферы -> депозит -> виза -> pre-departure.",
+        "Процесс Atlas: диагностика -> выбор стран -> shortlist -> документы -> заявки -> офферы -> депозит -> виза -> pre-departure.",
         "На первом шаге фиксируем профиль, затем делим задачи на документы, экзамены, дедлайны, бюджет и риски.",
         "После offer проверяем условия, депозит, финансы, визу, жилье, страховку и arrival steps.",
         knowledgeBlock(chunks, {
@@ -423,7 +423,7 @@ function buildAnswer(
 
     case "services":
       return [
-        "AtlasPath помогает с диагностикой, подбором стран и программ, документами, заявками, стипендиями, визой и pre-departure.",
+        "Atlas помогает с диагностикой, подбором стран и программ, документами, заявками, стипендиями, визой и pre-departure.",
         compactList(services.map((service) => `${service.title}: ${service.summary}`), 6),
         "Если цель уже понятна, можно сразу перейти к консультации; если нет - начнем с бюджета, уровня и направления.",
       ]
@@ -432,7 +432,7 @@ function buildAnswer(
 
     case "contact":
       return [
-        `Связаться с AtlasPath можно через форму консультации, email ${companyContacts.email} или Instagram.`,
+        `Связаться с Atlas можно через форму консультации, email ${companyContacts.email} или Instagram.`,
         `Вот ссылка на Instagram: ${companyContacts.instagram}`,
         "Чтобы менеджер ответил быстрее, добавьте уровень, направление, оценки/GPA, страны, бюджет, intake, язык и риск-факторы.",
         knowledgeBlock(chunks, {

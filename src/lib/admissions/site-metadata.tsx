@@ -27,7 +27,7 @@ export const siteDescription =
 
 export const siteKeywords = [
   "Atlas 1.0.0",
-  "AtlasPath",
+  "Atlas",
   "поступление за границу",
   "университеты за рубежом",
   "study abroad",
@@ -181,7 +181,7 @@ export function AtlasSocialImage() {
                     fontWeight: 600,
                   }}
                 >
-                  AtlasPath Admissions
+                  Atlas Admissions
                 </div>
               </div>
             </div>

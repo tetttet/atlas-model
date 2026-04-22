@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  Fragment,
   useCallback,
   useEffect,
   useState,
@@ -282,7 +283,9 @@ function renderInlineMarkdownWithBreaks(
   });
 
   if (trailingNode) {
-    nodes.push(trailingNode);
+    nodes.push(
+      <Fragment key={`${keyPrefix}-trailing`}>{trailingNode}</Fragment>,
+    );
   }
 
   return nodes;

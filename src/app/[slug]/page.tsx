@@ -67,8 +67,6 @@ export default async function ContentPage({ params }: PageProps) {
     notFound();
   }
 
-  const isConsultation = page.slug === "consultation";
-
   return (
     <main className="min-h-dvh bg-[#f7f8f4]">
       <div className="mx-auto flex w-full max-w-4xl flex-col px-5 py-6 sm:px-8 sm:py-10">
@@ -128,74 +126,6 @@ export default async function ContentPage({ params }: PageProps) {
             </section>
           ))}
         </div>
-
-        {isConsultation ? (
-          <form className="mt-10 grid gap-4 border-t border-[#dfe6dd] pt-7">
-            <div className="grid gap-4 sm:grid-cols-2">
-              <label className="grid gap-2 text-sm font-medium text-[#14213d]">
-                Имя
-                <input
-                  className="rounded-2xl border border-[#cfdad0] bg-white px-4 py-3 text-sm outline-none focus:border-[#0f766e] focus:ring-4 focus:ring-[#0f766e]/10"
-                  name="name"
-                  placeholder="Ваше имя"
-                  type="text"
-                />
-              </label>
-              <label className="grid gap-2 text-sm font-medium text-[#14213d]">
-                Контакт
-                <input
-                  className="rounded-2xl border border-[#cfdad0] bg-white px-4 py-3 text-sm outline-none focus:border-[#0f766e] focus:ring-4 focus:ring-[#0f766e]/10"
-                  name="contact"
-                  placeholder="Email или телефон"
-                  type="text"
-                />
-              </label>
-            </div>
-            <div className="grid gap-4 sm:grid-cols-3">
-              <label className="grid gap-2 text-sm font-medium text-[#14213d]">
-                Уровень
-                <input
-                  className="rounded-2xl border border-[#cfdad0] bg-white px-4 py-3 text-sm outline-none focus:border-[#0f766e] focus:ring-4 focus:ring-[#0f766e]/10"
-                  name="level"
-                  placeholder="Bachelor, master..."
-                  type="text"
-                />
-              </label>
-              <label className="grid gap-2 text-sm font-medium text-[#14213d]">
-                Страны
-                <input
-                  className="rounded-2xl border border-[#cfdad0] bg-white px-4 py-3 text-sm outline-none focus:border-[#0f766e] focus:ring-4 focus:ring-[#0f766e]/10"
-                  name="countries"
-                  placeholder="Канада, Германия..."
-                  type="text"
-                />
-              </label>
-              <label className="grid gap-2 text-sm font-medium text-[#14213d]">
-                Бюджет
-                <input
-                  className="rounded-2xl border border-[#cfdad0] bg-white px-4 py-3 text-sm outline-none focus:border-[#0f766e] focus:ring-4 focus:ring-[#0f766e]/10"
-                  name="budget"
-                  placeholder="Например 15 000 EUR"
-                  type="text"
-                />
-              </label>
-            </div>
-            <label className="grid gap-2 text-sm font-medium text-[#14213d]">
-              Ситуация
-              <textarea
-                className="min-h-32 rounded-2xl border border-[#cfdad0] bg-white px-4 py-3 text-sm outline-none focus:border-[#0f766e] focus:ring-4 focus:ring-[#0f766e]/10"
-                name="case"
-                placeholder="Направление, оценки, сроки, вопросы по визе или документам"
-              />
-            </label>
-            <button
-              className="w-fit rounded-full bg-[#0f766e] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#0b5f59]"
-              type="submit"
-            >
-              Отправить заявку
-            </button>
-          </form>
-        ) : null}
 
         <div className="mt-10 flex flex-wrap gap-3 border-t border-[#dfe6dd] pt-7">
           <Link
