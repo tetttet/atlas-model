@@ -74,7 +74,7 @@ function buildGeminiUserPrompt(input: GeminiInput) {
         `Answer as ${productBrand.assistantName} and extract useful lead profile fields from this turn.`,
       responseContract: {
         answer:
-          "Russian text, factual, usually 4-9 lines. Be specific to the student's profile and avoid repeating a generic intro. Do not invent exact chances, exact visa outcome, exact scholarship or exact deadlines.",
+          "Russian text. For admissions questions, be factual and usually 4-9 lines. For pure greetings, thanks, or 'how are you', reply briefly and warmly first, then invite a study-abroad goal. Be specific to the student's profile and avoid repeating a generic intro. Do not invent exact chances, exact visa outcome, exact scholarship or exact deadlines.",
         leadProfilePatch:
           "Only fields explicitly stated or strongly implied by the user. Supported fields: name, contact, countryOfResidence, level, targetCountries, program, budget, languageTest, gpa, deadline, riskFactors, notes.",
         handoff:

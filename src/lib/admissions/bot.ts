@@ -212,6 +212,103 @@ function hasAny(text: string, signals: string[]) {
   return signals.some((signal) => text.includes(signal));
 }
 
+function hasCasualSignal(text: string, signals: string[]) {
+  const words = text.split(" ");
+
+  return signals.some((signal) =>
+    signal.length <= 3 ? words.includes(signal) : text.includes(signal),
+  );
+}
+
+function isCasualGeneralMessage(userMessage: string, intent: AdmissionIntent) {
+  if (intent !== "general") {
+    return false;
+  }
+
+  const normalized = userMessage
+    .toLocaleLowerCase("ru")
+    .replace(/[!?.,;:()[\]{}"']/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (!normalized) {
+    return false;
+  }
+
+  const casualSignals = [
+    "привет",
+    "здравствуй",
+    "здравствуйте",
+    "добрый день",
+    "добрый вечер",
+    "доброе утро",
+    "hello",
+    "hi",
+    "hey",
+    "как дела",
+    "как ты",
+    "как у тебя дела",
+    "спасибо",
+    "thanks",
+    "thank you",
+  ];
+  const admissionSignals = [
+    "поступ",
+    "университет",
+    "универ",
+    "вуз",
+    "стран",
+    "программ",
+    "документ",
+    "ielts",
+    "toefl",
+    "duolingo",
+    "дедлайн",
+    "deadline",
+    "стоим",
+    "бюджет",
+    "виз",
+    "visa",
+    "заяв",
+    "консультац",
+    "магистр",
+    "бакалавр",
+    "master",
+    "bachelor",
+  ];
+
+  return (
+    hasCasualSignal(normalized, casualSignals) &&
+    !hasAny(normalized, admissionSignals) &&
+    normalized.length <= 120
+  );
+}
+
+function buildCasualAnswer(userMessage: string) {
+  const normalized = userMessage.toLocaleLowerCase("ru");
+
+  if (hasAny(normalized, ["спасибо", "thanks", "thank you"])) {
+    return [
+      "Пожалуйста, рад помочь.",
+      "Я рядом: можем спокойно разобрать страну, программу, документы, IELTS, бюджет или дедлайны.",
+      "Если хотите начать с профиля, напишите уровень обучения, направление и оценки/GPA.",
+    ].join("\n");
+  }
+
+  if (hasAny(normalized, ["как дела", "как ты", "как у тебя дела"])) {
+    return [
+      "Привет! У меня все хорошо, спасибо. Я на связи и готов спокойно помочь с поступлением.",
+      "А у вас как дела: уже есть страна/направление или пока только присматриваетесь?",
+    ].join("\n");
+  }
+
+  return [
+    "Привет! Я на связи.",
+    "Можем спокойно разобрать поступление: страну, программу, документы, IELTS, бюджет или дедлайны.",
+    "Уже есть страна/направление или пока только выбираете?",
+  ].join("\n");
+}
+
 function documentListFor(memory: StudentMemory, normalizedMessage: string) {
   if (
     hasAny(normalizedMessage, [
@@ -445,6 +542,10 @@ function buildAnswer(
 
     case "general":
     default:
+      if (isCasualGeneralMessage(userMessage, intent)) {
+        return buildCasualAnswer(userMessage);
+      }
+
       if (
         normalizedMessage.includes("ты ии") ||
         normalizedMessage.includes("ты ai") ||
@@ -558,6 +659,18 @@ export async function createBotReply(
     leadProfile,
     handoff,
   };
+
+  if (isCasualGeneralMessage(userMessage, intentResult.intent)) {
+    return {
+      ...baseReply,
+      chips: [
+        "Пока выбираю страну",
+        "Хочу понять бюджет",
+        "Какие документы нужны?",
+        "С чего начать?",
+      ],
+    };
+  }
 
   if (!shouldUseGemini(intentResult.intent, intentResult.confidence, handoff)) {
     return baseReply;
