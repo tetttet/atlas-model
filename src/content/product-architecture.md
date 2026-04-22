@@ -61,6 +61,7 @@ Gemini:
 - model defaults to `gemini-flash-latest`;
 - `GEMINI_MODE=complex` keeps token usage low;
 - `GEMINI_MODE=always` routes every turn to Gemini;
+- 429 responses pause model calls briefly via `GEMINI_RATE_LIMIT_COOLDOWN_MS`;
 - client never receives the API key.
 
 ## Knowledge base

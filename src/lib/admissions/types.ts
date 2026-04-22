@@ -70,6 +70,7 @@ export type StudentMemory = {
   level?: StudyLevel;
   countries?: string[];
   program?: string;
+  language?: string;
   budget?: string;
   languageTest?: string;
   deadline?: string;
@@ -84,6 +85,7 @@ export type LeadProfile = {
   level?: StudyLevel;
   targetCountries?: string[];
   program?: string;
+  language?: string;
   budget?: string;
   languageTest?: string;
   gpa?: string;

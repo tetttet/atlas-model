@@ -12,17 +12,23 @@ function scoreChunk(
   memory?: StudentMemory,
 ) {
   const normalized = normalize(message);
-  const intentScore = chunk.intentTags.includes(intent) ? 12 : 0;
   const keywordScore = chunk.keywords.reduce((score, keyword) => {
     return normalized.includes(normalize(keyword)) ? score + 3 : score;
   }, 0);
+  const needsExplicitRiskSignal =
+    chunk.requiresHuman && intent !== "complex_case" && intent !== "visa";
+  const intentScore =
+    chunk.intentTags.includes(intent) &&
+    (!needsExplicitRiskSignal || keywordScore > 0)
+      ? 12
+      : 0;
   const countryScore =
     memory?.countries?.some((country) =>
       normalized.includes(normalize(country)),
     ) || false
       ? 2
       : 0;
-  const hasMatch = intentScore > 0 || keywordScore > 0 || countryScore > 0;
+  const hasMatch = intentScore > 0 || keywordScore > 0;
 
   return hasMatch ? intentScore + keywordScore + countryScore + chunk.priority : 0;
 }

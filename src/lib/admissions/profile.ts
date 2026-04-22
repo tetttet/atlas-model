@@ -1,4 +1,5 @@
-import { countries, handoffTriggers } from "./site-content";
+import { handoffTriggers } from "./site-content";
+import { extractMessageFacts } from "./classifier";
 import type {
   AdmissionIntent,
   LeadProfile,
@@ -44,6 +45,11 @@ function sanitizeStringArray(value: unknown, maxItems = 8) {
   ).slice(0, maxItems);
 }
 
+type MergeLeadProfileOptions = {
+  replaceTargetCountries?: boolean;
+  excludedTargetCountries?: string[];
+};
+
 function sanitizeLevel(value: unknown): StudyLevel | undefined {
   if (
     value === "foundation" ||
@@ -66,8 +72,9 @@ function compactSummary(profile: LeadProfile) {
     profile.targetCountries?.length &&
       `страны: ${profile.targetCountries.join(", ")}`,
     profile.program && `направление: ${profile.program}`,
+    profile.language && `язык обучения: ${profile.language}`,
     profile.budget && `бюджет: ${profile.budget}`,
-    profile.languageTest && `язык: ${profile.languageTest}`,
+    profile.languageTest && `тест: ${profile.languageTest}`,
     profile.deadline && `intake: ${profile.deadline}`,
     profile.riskFactors?.length && `риски: ${profile.riskFactors.join(", ")}`,
   ].filter(Boolean);
@@ -92,6 +99,7 @@ export function sanitizeLeadPatch(patch: Partial<LeadProfile> = {}) {
   clean.level = sanitizeLevel(patch.level);
   clean.targetCountries = sanitizeStringArray(patch.targetCountries);
   clean.program = sanitizeText(patch.program, 120);
+  clean.language = sanitizeText(patch.language, 80);
   clean.budget = sanitizeText(patch.budget, 80);
   clean.languageTest = sanitizeText(patch.languageTest, 80);
   clean.gpa = sanitizeText(patch.gpa, 80);
@@ -113,15 +121,26 @@ export function sanitizeLeadPatch(patch: Partial<LeadProfile> = {}) {
 export function mergeLeadProfile(
   previous: LeadProfile | undefined,
   patch: Partial<LeadProfile>,
+  options: MergeLeadProfileOptions = {},
 ) {
   const cleanPatch = sanitizeLeadPatch(patch);
+  const patchTargetCountries = sanitizeStringArray(patch.targetCountries);
+  const excludedTargetCountries = new Set(
+    unique(options.excludedTargetCountries ?? []),
+  );
+  const targetCountryPool =
+    options.replaceTargetCountries && Array.isArray(patch.targetCountries)
+      ? patchTargetCountries ?? []
+      : [
+          ...(previous?.targetCountries ?? []),
+          ...(patchTargetCountries ?? []),
+        ];
   const merged: LeadProfile = {
     ...previous,
     ...cleanPatch,
-    targetCountries: unique([
-      ...(previous?.targetCountries ?? []),
-      ...(cleanPatch.targetCountries ?? []),
-    ]),
+    targetCountries: unique(targetCountryPool).filter(
+      (country) => !excludedTargetCountries.has(country),
+    ),
     riskFactors: unique([
       ...(previous?.riskFactors ?? []),
       ...(cleanPatch.riskFactors ?? []),
@@ -145,10 +164,12 @@ export function extractLeadProfile(
   intent: AdmissionIntent,
 ) {
   const normalized = normalize(message);
+  const messageFacts = extractMessageFacts(message);
   const patch: Partial<LeadProfile> = {
     level: memory.level,
-    targetCountries: memory.countries,
+    targetCountries: memory.countries ?? messageFacts.countries,
     program: memory.program,
+    language: memory.language,
     budget: memory.budget,
     languageTest: memory.languageTest,
     deadline: memory.deadline,
@@ -189,17 +210,6 @@ export function extractLeadProfile(
     patch.gpa = gpaMatch[0];
   }
 
-  const mentionedCountries = countries
-    .filter((country) => normalized.includes(normalize(country.name)))
-    .map((country) => country.name);
-
-  if (mentionedCountries.length > 0) {
-    patch.targetCountries = unique([
-      ...(patch.targetCountries ?? []),
-      ...mentionedCountries,
-    ]);
-  }
-
   const riskFactors = handoffTriggers.filter((trigger) =>
     normalized.includes(normalize(trigger)),
   );
@@ -214,5 +224,8 @@ export function extractLeadProfile(
     patch.notes = [message.slice(0, 220)];
   }
 
-  return mergeLeadProfile(previous, patch);
+  return mergeLeadProfile(previous, patch, {
+    excludedTargetCountries: messageFacts.excludedCountries,
+    replaceTargetCountries: messageFacts.countrySelectionMode === "replace",
+  });
 }

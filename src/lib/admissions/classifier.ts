@@ -1,6 +1,7 @@
 import { countries, handoffTriggers } from "./site-content";
 import type {
   AdmissionIntent,
+  LeadProfile,
   IntentResult,
   StudentMemory,
   StudyLevel,
@@ -24,6 +25,8 @@ const intentKeywords: Record<AdmissionIntent, string[]> = {
     "перевод",
     "нотариус",
     "document",
+    "доки",
+    "бумаги",
   ],
   country_fit: [
     "куда",
@@ -53,6 +56,12 @@ const intentKeywords: Record<AdmissionIntent, string[]> = {
     "australia",
     "ирландия",
     "ireland",
+    "турция",
+    "турцию",
+    "турции",
+    "турци",
+    "turkey",
+    "türkiye",
     "европа",
     "europe",
   ],
@@ -72,6 +81,7 @@ const intentKeywords: Record<AdmissionIntent, string[]> = {
     "цена",
     "бюджет",
     "сколько",
+    "скок",
     "деньги",
     "tuition",
     "стипенд",
@@ -86,6 +96,7 @@ const intentKeywords: Record<AdmissionIntent, string[]> = {
   ],
   deadlines: [
     "дедлайн",
+    "дедлайны",
     "deadline",
     "срок",
     "когда",
@@ -165,7 +176,15 @@ const intentKeywords: Record<AdmissionIntent, string[]> = {
     "гарантия",
     "точные шансы",
   ],
-  services: ["услуги", "пакет", "сопровождение", "что делаете", "помощь"],
+  services: [
+    "услуги",
+    "пакет",
+    "сопровождение",
+    "что делаете",
+    "что можете",
+    "чем помогаете",
+    "помощь",
+  ],
   contact: [
     "контакт",
     "email",
@@ -195,11 +214,36 @@ const intentKeywords: Record<AdmissionIntent, string[]> = {
 
 const levelSignals: Array<[StudyLevel, string[]]> = [
   ["foundation", ["foundation", "pathway", "подготовительн"]],
-  ["bachelor", ["бакалавр", "bachelor", "undergraduate", "школ", "аттестат"]],
-  ["master", ["магистр", "master", "msc", "ma", "mba", "диплом"]],
+  [
+    "bachelor",
+    ["бакалавр", "бакал", "бак", "bachelor", "undergraduate", "школ", "аттестат"],
+  ],
+  ["master", ["магистр", "маг", "мага", "master", "msc", "ma", "mba", "диплом"]],
   ["phd", ["phd", "докторан", "аспиран"]],
   ["language", ["языковые курсы", "language course"]],
 ];
+
+const languagePreferenceSignals: Array<[string, string[]]> = [
+  ["английский", ["английск", "англ", "english", "eng", "на английском"]],
+  ["турецкий", ["турецк", "турк", "turkish", "на турецком"]],
+  ["немецкий", ["немецк", "нем", "german", "на немецком"]],
+  ["французский", ["французск", "франц", "french", "на французском"]],
+  ["испанский", ["испанск", "испан", "spanish", "на испанском"]],
+  ["итальянский", ["итальянск", "итал", "italian", "на итальянском"]],
+  ["русский", ["русск", "russian", "на русском"]],
+];
+
+export type MessageFacts = {
+  level?: StudyLevel;
+  countries: string[];
+  excludedCountries: string[];
+  countrySelectionMode?: "merge" | "replace";
+  program?: string;
+  language?: string;
+  budget?: string;
+  languageTest?: string;
+  deadline?: string;
+};
 
 function normalize(input: string) {
   return input.toLocaleLowerCase("ru").trim();
@@ -213,8 +257,321 @@ function unique<T>(items: T[]) {
   return Array.from(new Set(items));
 }
 
-export function classifyIntent(message: string): IntentResult {
+function wordCount(text: string) {
+  return text.split(/\s+/).filter(Boolean).length;
+}
+
+function countryAliases(country: (typeof countries)[number]) {
+  return [
+    country.name,
+    country.slug,
+    country.name.slice(0, Math.max(4, country.name.length - 2)),
+    country.slug === "uk" ? "великобритания" : "",
+    country.slug === "usa" ? "сша" : "",
+    country.slug === "usa" ? "америка" : "",
+    country.slug === "netherlands" ? "нидерланды" : "",
+    country.slug === "germany" ? "германи" : "",
+    country.slug === "italy" ? "итали" : "",
+    country.slug === "france" ? "франци" : "",
+    country.slug === "spain" ? "испан" : "",
+    country.slug === "australia" ? "австрали" : "",
+    country.slug === "ireland" ? "ирланди" : "",
+    country.slug === "turkey" ? "турц" : "",
+    country.slug === "turkey" ? "турцию" : "",
+    country.slug === "turkey" ? "турки" : "",
+  ].filter(Boolean);
+}
+
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function countryAliasPattern(alias: string) {
+  return `${escapeRegExp(alias)}[a-zа-яё]*`;
+}
+
+function hasCountryAlias(text: string, country: (typeof countries)[number]) {
+  return countryAliases(country).some((alias) =>
+    includesKeyword(text, alias),
+  );
+}
+
+function isCountryExcluded(text: string, country: (typeof countries)[number]) {
+  return countryAliases(country).some((alias) => {
+    const countryPattern = countryAliasPattern(alias);
+    const patterns = [
+      new RegExp(
+        `(^|\\s)(?:нет\\s+не|не|без|кроме)\\s+(?:в\\s+|во\\s+|по\\s+)?${countryPattern}(?=\\s|$)`,
+      ),
+      new RegExp(
+        `(^|\\s)(?:убери|убрать|исключи|исключить|удали|удалить)\\s+(?:из\\s+списка\\s+)?(?:в\\s+|во\\s+|по\\s+)?${countryPattern}(?=\\s|$)`,
+      ),
+      new RegExp(
+        `(^|\\s)вместо\\s+(?:в\\s+|во\\s+|по\\s+)?${countryPattern}(?=\\s|$)`,
+      ),
+      new RegExp(
+        `(^|\\s)${countryPattern}\\s+(?:не\\s+надо|не\\s+нужно|не\\s+рассматриваем|не\\s+хочу)(?=\\s|$)`,
+      ),
+    ];
+
+    return patterns.some((pattern) => pattern.test(text));
+  });
+}
+
+function hasExclusiveCountrySignal(text: string) {
+  return /(^|\s)(?:только|тока|лишь|исключительно|вместо)(\s|$)/.test(
+    text,
+  );
+}
+
+function countMessageFacts(facts: MessageFacts) {
+  return [
+    facts.level,
+    facts.countries.length > 0 ? facts.countries.join(",") : undefined,
+    facts.excludedCountries.length > 0
+      ? facts.excludedCountries.join(",")
+      : undefined,
+    facts.program,
+    facts.language,
+    facts.budget,
+    facts.languageTest,
+    facts.deadline,
+  ].filter(Boolean).length;
+}
+
+function formatBudget(amount?: string, currency?: string) {
+  const cleanAmount = amount?.trim();
+  const cleanCurrency = currency?.trim();
+
+  if (!cleanAmount) {
+    return undefined;
+  }
+
+  if (!cleanCurrency) {
+    return cleanAmount;
+  }
+
+  return cleanCurrency === "k" || cleanCurrency === "к"
+    ? `${cleanAmount}${cleanCurrency}`
+    : `${cleanAmount} ${cleanCurrency}`;
+}
+
+function hasActiveProfileContext(
+  memory?: StudentMemory,
+  leadProfile?: LeadProfile,
+) {
+  return Boolean(
+    memory?.summary ||
+      memory?.lastIntent ||
+      memory?.level ||
+      memory?.countries?.length ||
+      memory?.program ||
+      memory?.language ||
+      memory?.budget ||
+      memory?.languageTest ||
+      memory?.deadline ||
+      leadProfile?.summary ||
+      leadProfile?.level ||
+      leadProfile?.targetCountries?.length ||
+      leadProfile?.program ||
+      leadProfile?.language ||
+      leadProfile?.budget ||
+      leadProfile?.languageTest ||
+      leadProfile?.deadline,
+  );
+}
+
+function intentFromFacts(facts: MessageFacts): AdmissionIntent {
+  if (facts.budget) {
+    return "pricing";
+  }
+
+  if (facts.language || facts.languageTest) {
+    return "language_test";
+  }
+
+  if (facts.program) {
+    return "universities";
+  }
+
+  return "country_fit";
+}
+
+function fallbackIntentFromFacts(
+  facts: MessageFacts,
+  previous?: StudentMemory,
+  preferPrevious = true,
+): AdmissionIntent {
+  if (preferPrevious && previous?.lastIntent && previous.lastIntent !== "general") {
+    return previous.lastIntent;
+  }
+
+  return intentFromFacts(facts);
+}
+
+function hasQuestionSignal(text: string) {
+  return (
+    text.includes("?") ||
+    [
+      "сколько",
+      "скок",
+      "какие",
+      "какой",
+      "какая",
+      "как ",
+      "когда",
+      "зачем",
+      "почему",
+      "нужн",
+      "можно",
+      "получится",
+      "хватит",
+      "подойдет",
+      "подойдёт",
+      "что делать",
+      "куда",
+      "сравни",
+    ].some((signal) => text.includes(signal))
+  );
+}
+
+function directIntentFromQuestion(text: string): AdmissionIntent | undefined {
+  if (!hasQuestionSignal(text)) {
+    return undefined;
+  }
+
+  if (hasTextSignal(text, ["виза", "visa", "консуль", "посоль", "proof of funds"])) {
+    return "visa";
+  }
+
+  if (hasTextSignal(text, ["документ", "доки", "бумаги", "аттестат", "диплом", "sop", "cv"])) {
+    return "documents";
+  }
+
+  if (
+    hasTextSignal(text, [
+      "сколько",
+      "скок",
+      "стоим",
+      "цена",
+      "бюджет",
+      "tuition",
+      "грант",
+      "стипенд",
+      "дешев",
+      "недорого",
+    ])
+  ) {
+    return "pricing";
+  }
+
+  if (hasTextSignal(text, ["дедлайн", "срок", "когда", "intake", "успеть"])) {
+    return "deadlines";
+  }
+
+  if (hasTextSignal(text, ["ielts", "toefl", "duolingo", "язык", "англ", "waiver"])) {
+    return "language_test";
+  }
+
+  if (hasTextSignal(text, ["университет", "универ", "вуз", "программа", "shortlist"])) {
+    return "universities";
+  }
+
+  if (hasTextSignal(text, ["процесс", "этап", "план", "что делать", "с чего"])) {
+    return "process";
+  }
+
+  if (hasTextSignal(text, ["услуги", "что делаете", "что можете", "чем помогаете"])) {
+    return "services";
+  }
+
+  if (hasTextSignal(text, ["контакт", "email", "телефон", "instagram", "инста", "связаться"])) {
+    return "contact";
+  }
+
+  return undefined;
+}
+
+function hasTextSignal(text: string, signals: string[]) {
+  return signals.some((signal) => text.includes(signal));
+}
+
+function isShortPatchLike(text: string) {
+  return wordCount(text) <= 8 || text.length <= 110;
+}
+
+export function extractMessageFacts(message: string): MessageFacts {
+  const normalized = normalize(message).replace(/[!?.,;:()[\]{}"']/g, " ");
+  const level = levelSignals.find(([, keywords]) =>
+    keywords.some((keyword) => includesKeyword(normalized, keyword)),
+  )?.[0];
+  const mentionedCountries = countries.filter((country) =>
+    hasCountryAlias(normalized, country),
+  );
+  const excludedCountries = mentionedCountries
+    .filter((country) => isCountryExcluded(normalized, country))
+    .map((country) => country.name);
+  const countriesMentioned = mentionedCountries
+    .map((country) => country.name)
+    .filter((country) => !excludedCountries.includes(country));
+  const countrySelectionMode =
+    hasExclusiveCountrySignal(normalized) ||
+    (countriesMentioned.length > 0 && excludedCountries.length > 0)
+      ? "replace"
+      : undefined;
+  const budgetMatch =
+    normalized.match(
+      /(?:бюджет|budget|до|около|примерно)\s*([0-9][0-9\s.,]*(?:[-–][0-9][0-9\s.,]*)?)\s*(usd|eur|gbp|cad|try|tl|евро|доллар|долларов|фунт|лир|тыс|тысяч|k|к)?/,
+    ) ??
+    normalized.match(
+      /\b([0-9][0-9\s.,]*(?:[-–][0-9][0-9\s.,]*)?)\s*(usd|eur|gbp|cad|try|tl|евро|доллар|долларов|фунт|лир|тыс|тысяч|k|к)\b/,
+    );
+  const standaloneBudgetMatch = normalized.match(
+    /(^|\s)([0-9][0-9\s.,]*(?:[-–][0-9][0-9\s.,]*)?)\s*(k|к|тыс|тысяч)(?=\s|$)/,
+  );
+  const languageTestMatch = normalized.match(
+    /ielts\s*([0-9][.,]?[0-9])?|toefl\s*([0-9]{2,3})?|duolingo\s*([0-9]{2,3})?|pte\s*([0-9]{2,3})?/,
+  );
+  const language = languagePreferenceSignals.find(([, keywords]) =>
+    keywords.some((keyword) => includesKeyword(normalized, keyword)),
+  )?.[0];
+  const deadlineMatch = normalized.match(
+    /(осень|весна|сентябрь|январь|2026|2027|2028|2029|fall|spring|winter intake|summer intake)/,
+  );
+  const programMatch = normalized.match(
+    /(computer science|software|programming|business|data|design|engineering|medicine|law|finance|marketing|architecture|hospitality|management|psychology|ai|ux|cs|компьютерн|программирован|маркетинг|бизнес|дизайн|айти|it|медицина|право|финансы|архитектура|гостинич|менеджмент|психолог|искусственный интеллект|аналитика|туризм)/,
+  );
+
+  return {
+    level,
+    countries: unique(countriesMentioned),
+    excludedCountries: unique(excludedCountries),
+    countrySelectionMode,
+    program: programMatch?.[0],
+    language,
+    budget:
+      budgetMatch && /[0-9]/.test(budgetMatch[0])
+        ? formatBudget(budgetMatch[1], budgetMatch[2])
+        : standaloneBudgetMatch && /[0-9]/.test(standaloneBudgetMatch[0])
+          ? formatBudget(standaloneBudgetMatch[2], standaloneBudgetMatch[3])
+          : undefined,
+    languageTest: languageTestMatch?.[0].toUpperCase(),
+    deadline: deadlineMatch?.[0],
+  };
+}
+
+export function classifyIntent(
+  message: string,
+  previousMemory?: StudentMemory,
+  previousLeadProfile?: LeadProfile,
+): IntentResult {
   const normalized = normalize(message);
+  const facts = extractMessageFacts(message);
+  const factsCount = countMessageFacts(facts);
+  const hasContext = hasActiveProfileContext(previousMemory, previousLeadProfile);
+  const asksQuestion = hasQuestionSignal(normalized);
+  const isShortSlotReply =
+    factsCount > 0 && isShortPatchLike(normalized) && !asksQuestion;
   const scored = Object.entries(intentKeywords).map(([intent, keywords]) => {
     const matchedKeywords = keywords.filter((keyword) =>
       includesKeyword(normalized, keyword),
@@ -235,8 +592,63 @@ export function classifyIntent(message: string): IntentResult {
   const needsHuman =
     best.intent === "complex_case" ||
     handoffTriggers.some((trigger) => includesKeyword(normalized, trigger));
+  const directQuestionIntent = directIntentFromQuestion(normalized);
+  const previousIntent = previousMemory?.lastIntent;
+  const shouldInheritConversation =
+    isShortSlotReply &&
+    hasContext &&
+    previousIntent &&
+    previousIntent !== "general";
+
+  if (directQuestionIntent && !needsHuman) {
+    return {
+      intent: directQuestionIntent,
+      confidence: 0.72,
+      matchedKeywords: [directQuestionIntent],
+      needsHuman,
+    };
+  }
+
+  if (shouldInheritConversation && previousIntent) {
+    return {
+      intent: previousIntent,
+      confidence: 0.68,
+      matchedKeywords: [
+        ...best.matchedKeywords,
+        ...Object.values(facts)
+          .flat()
+          .filter((value): value is string => typeof value === "string"),
+      ],
+      needsHuman,
+    };
+  }
 
   if (!best || best.score === 0) {
+    if (factsCount > 0) {
+      return {
+        intent: fallbackIntentFromFacts(facts, previousMemory, !asksQuestion),
+        confidence: hasContext ? 0.66 : 0.58,
+        matchedKeywords: Object.values(facts)
+          .flat()
+          .filter((value): value is string => typeof value === "string"),
+        needsHuman,
+      };
+    }
+
+    if (
+      hasContext &&
+      previousIntent &&
+      previousIntent !== "general" &&
+      isShortPatchLike(normalized)
+    ) {
+      return {
+        intent: previousIntent,
+        confidence: 0.52,
+        matchedKeywords: ["context-continuation"],
+        needsHuman,
+      };
+    }
+
     return {
       intent: needsHuman ? "complex_case" : "general",
       confidence: needsHuman ? 0.72 : 0.35,
@@ -258,74 +670,54 @@ export function updateMemory(
   message: string,
   intent: AdmissionIntent,
 ): StudentMemory {
-  const normalized = normalize(message);
+  const facts = extractMessageFacts(message);
   const next: StudentMemory = {
     ...previous,
     lastIntent: intent,
   };
 
-  const level = levelSignals.find(([, keywords]) =>
-    keywords.some((keyword) => includesKeyword(normalized, keyword)),
-  )?.[0];
-
-  if (level) {
-    next.level = level;
+  if (facts.level) {
+    next.level = facts.level;
   }
 
-  const mentionedCountries = countries
-    .filter((country) => {
-      const aliases = [
-        country.name,
-        country.slug,
-        country.name.slice(0, Math.max(4, country.name.length - 2)),
-        country.slug === "uk" ? "великобритания" : "",
-        country.slug === "usa" ? "сша" : "",
-        country.slug === "usa" ? "америка" : "",
-        country.slug === "netherlands" ? "нидерланды" : "",
-        country.slug === "germany" ? "германи" : "",
-        country.slug === "italy" ? "итали" : "",
-        country.slug === "france" ? "франци" : "",
-        country.slug === "spain" ? "испан" : "",
-        country.slug === "australia" ? "австрали" : "",
-        country.slug === "ireland" ? "ирланди" : "",
-      ].filter(Boolean);
-
-      return aliases.some((alias) => includesKeyword(normalized, alias));
-    })
-    .map((country) => country.name);
-
-  if (mentionedCountries.length > 0) {
-    next.countries = unique([...(previous?.countries ?? []), ...mentionedCountries]);
+  if (facts.countries.length > 0) {
+    next.countries =
+      facts.countrySelectionMode === "replace"
+        ? facts.countries
+        : unique([...(previous?.countries ?? []), ...facts.countries]);
   }
 
-  const budgetMatch = normalized.match(
-    /(?:бюджет|budget|до|около|примерно)\s*([0-9][0-9\s.,]*)\s*(usd|eur|gbp|cad|евро|доллар|долларов|фунт|тыс|k)?/,
-  );
+  if (facts.excludedCountries.length > 0) {
+    const excludedCountries = new Set(facts.excludedCountries);
+    const filteredCountries = (next.countries ?? previous?.countries ?? []).filter(
+      (country) => !excludedCountries.has(country),
+    );
 
-  if (budgetMatch) {
-    next.budget = budgetMatch[0];
+    if (filteredCountries.length > 0) {
+      next.countries = filteredCountries;
+    } else {
+      delete next.countries;
+    }
   }
 
-  const languageMatch = normalized.match(/ielts\s*([0-9][.,]?[0-9])?|toefl|duolingo/);
-
-  if (languageMatch) {
-    next.languageTest = languageMatch[0].toUpperCase();
+  if (facts.budget) {
+    next.budget = facts.budget;
   }
 
-  const deadlineMatch = normalized.match(
-    /(осень|весна|сентябрь|январь|2026|2027|2028|fall|spring|winter intake|summer intake)/,
-  );
-
-  if (deadlineMatch) {
-    next.deadline = deadlineMatch[0];
+  if (facts.language) {
+    next.language = facts.language;
   }
 
-  const programMatch = normalized.match(
-    /(computer science|business|data|design|engineering|medicine|law|finance|marketing|architecture|hospitality|management|psychology|ai|ux|маркетинг|бизнес|дизайн|айти|it|медицина|право|финансы|архитектура|гостинич|менеджмент|психолог|искусственный интеллект|аналитика|туризм)/,
-  );
+  if (facts.languageTest) {
+    next.languageTest = facts.languageTest;
+  }
 
-  if (programMatch) {
-    next.program = programMatch[0];
+  if (facts.deadline) {
+    next.deadline = facts.deadline;
+  }
+
+  if (facts.program) {
+    next.program = facts.program;
   }
 
   next.summary = buildMemorySummary(next);
@@ -340,8 +732,9 @@ function buildMemorySummary(memory: StudentMemory) {
       ? `страны: ${memory.countries.join(", ")}`
       : undefined,
     memory.program && `направление: ${memory.program}`,
+    memory.language && `язык обучения: ${memory.language}`,
     memory.budget && `бюджет: ${memory.budget}`,
-    memory.languageTest && `язык: ${memory.languageTest}`,
+    memory.languageTest && `тест: ${memory.languageTest}`,
     memory.deadline && `intake/срок: ${memory.deadline}`,
   ].filter(Boolean);
 
