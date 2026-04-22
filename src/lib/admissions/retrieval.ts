@@ -31,7 +31,7 @@ export function retrieveKnowledge(
   intent: AdmissionIntent,
   message: string,
   memory?: StudentMemory,
-  limit = 4,
+  limit = 6,
 ) {
   return knowledgeChunks
     .map((chunk) => ({
@@ -49,7 +49,7 @@ export function compactContext(chunks: KnowledgeChunk[]) {
     id: chunk.id,
     title: chunk.title,
     summary: chunk.summary,
-    facts: chunk.content.slice(0, 3),
+    facts: chunk.content.slice(0, 4),
     links: chunk.links,
   }));
 }

@@ -40,6 +40,7 @@ export function AdmissionsChat() {
   const [activeChatId, setActiveChatId] = useState(initialChat.id);
   const [input, setInput] = useState("");
   const [loadingChatId, setLoadingChatId] = useState<string | null>(null);
+  const [typingMessageId, setTypingMessageId] = useState<string | null>(null);
   const [error, setError] = useState<{ chatId: string; message: string } | null>(
     null,
   );
@@ -115,6 +116,7 @@ export function AdmissionsChat() {
     setActiveChatId(chat.id);
     setInput("");
     setError(null);
+    setTypingMessageId(null);
     setIsSidebarOpen(false);
   }
 
@@ -122,6 +124,7 @@ export function AdmissionsChat() {
     setActiveChatId(chatId);
     setInput("");
     setError(null);
+    setTypingMessageId(null);
     setIsSidebarOpen(false);
   }
 
@@ -156,6 +159,15 @@ export function AdmissionsChat() {
       setLoadingChatId(null);
     }
 
+    setTypingMessageId((current) => {
+      const deletedChat = chats.find((chat) => chat.id === chatId);
+      const deletedMessageIds = new Set(
+        deletedChat?.messages.map((message) => message.id) ?? [],
+      );
+
+      return current && deletedMessageIds.has(current) ? null : current;
+    });
+
     setError((current) => (current?.chatId === chatId ? null : current));
   }
 
@@ -170,6 +182,7 @@ export function AdmissionsChat() {
     setInput("");
     setError(null);
     setLoadingChatId(null);
+    setTypingMessageId(null);
   }
 
   function cancelDeleteConfirmation() {
@@ -343,6 +356,7 @@ export function AdmissionsChat() {
         reply,
       };
 
+      setTypingMessageId(assistantMessage.id);
       setChats((current) =>
         current.map((chat) =>
           chat.id === chatId
@@ -407,7 +421,13 @@ export function AdmissionsChat() {
         <ChatMessages
           isLoading={isLoading}
           messages={activeChat.messages}
+          onTypingComplete={(messageId) =>
+            setTypingMessageId((current) =>
+              current === messageId ? null : current,
+            )
+          }
           scrollRef={scrollRef}
+          typingMessageId={typingMessageId}
         />
 
         <ChatComposer

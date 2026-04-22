@@ -237,6 +237,28 @@ a {
   animation-delay: 0.32s;
 }
 
+.chat-type-caret {
+  height: 1.08em;
+  width: 2px;
+  border-radius: 999px;
+  background: currentColor;
+  opacity: 0.72;
+  transform: translateY(0.18em);
+  animation: chat-type-caret 0.85s ease-in-out infinite;
+}
+
+@keyframes chat-type-caret {
+  0%,
+  45% {
+    opacity: 0.72;
+  }
+
+  46%,
+  100% {
+    opacity: 0.1;
+  }
+}
+
 @keyframes chat-typing-dot {
   0%,
   80%,
