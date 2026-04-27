@@ -1,4 +1,4 @@
-import { createBotReply } from "@/lib/admissions/bot";
+import { createBotResponse } from "@/lib/admissions/bot";
 import type { ChatRequest } from "@/lib/admissions/types";
 
 export async function POST(request: Request) {
@@ -20,13 +20,11 @@ export async function POST(request: Request) {
       );
     }
 
-    const reply = await createBotReply(
+    return createBotResponse(
       message,
       body.memory,
       body.leadProfile,
     );
-
-    return Response.json(reply);
   } catch {
     return Response.json(
       {

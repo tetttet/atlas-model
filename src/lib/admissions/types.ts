@@ -75,6 +75,16 @@ export type StudentMemory = {
   languageTest?: string;
   deadline?: string;
   lastIntent?: AdmissionIntent;
+  lastTopic?: string;
+  lastUserMessage?: string;
+  lastBotAnswer?: string;
+  lastBotIntent?: string;
+  lastBotQuestion?: string;
+  lastSuggestedChips?: string[];
+  selectedCourse?: string;
+  userGoal?: string;
+  unansweredQuestion?: string;
+  repeatedCount?: number;
   summary?: string;
 };
 
@@ -122,6 +132,10 @@ export type BotReply = {
   memory: StudentMemory;
   leadProfile: LeadProfile;
   handoff: boolean;
+  topic?: string;
+  usedGemini?: boolean;
+  fallbackReason?: string;
+  repeatedAnswerDetected?: boolean;
 };
 
 export type ChatRequest = {

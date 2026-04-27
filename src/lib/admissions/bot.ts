@@ -7,14 +7,23 @@ import {
 import {
   GeminiRequestError,
   askGemini,
+  askGeminiStream,
   getGeminiCooldownMs,
   hasGeminiConfig,
   isGeminiTemporarilyUnavailable,
+  type GeminiInput,
 } from "./gemini";
 import { ADMISSIONS_SYSTEM_PROMPT } from "./prompt";
 import { extractLeadProfile, mergeLeadProfile } from "./profile";
 import { compactContext, retrieveKnowledge } from "./retrieval";
 import { productBrand } from "./brand";
+import {
+  localRouterTopicChips,
+  localRouterTopicLabel,
+  routeMessageLocally,
+  type LocalRouterResult,
+  type LocalRouterTopic,
+} from "./local-router";
 import {
   countries,
   companyContacts,
@@ -39,6 +48,31 @@ const defaultChips = [
   "Сколько стоит обучение?",
   "Я хочу начать поступление",
 ];
+
+type GeminiMode = "off" | "simple" | "complex";
+
+type ChatTurn = {
+  userMessage: string;
+  previousMemory?: StudentMemory;
+  previousLeadProfile?: LeadProfile;
+  turnFacts: MessageFacts;
+  routerResult: LocalRouterResult;
+  intentResult: {
+    intent: AdmissionIntent;
+    confidence: number;
+    matchedKeywords: string[];
+    needsHuman: boolean;
+  };
+  memory: StudentMemory;
+  chunks: KnowledgeChunk[];
+  handoff: boolean;
+  leadProfile: LeadProfile;
+  scopeIssue?: ScopeIssue;
+  baseReply: BotReply;
+  useGemini: boolean;
+};
+
+type GeminiAskFunction = (input: GeminiInput) => ReturnType<typeof askGemini>;
 
 type ScopeIssue =
   | {
@@ -1228,17 +1262,39 @@ export function buildPromptPayload(
   };
 }
 
-function shouldUseGemini(
+function geminiMode(): GeminiMode {
+  const rawMode = (process.env.GEMINI_MODE ?? "complex").toLocaleLowerCase("en");
+
+  if (rawMode === "off" || rawMode === "never") {
+    return "off";
+  }
+
+  if (rawMode === "simple") {
+    return "simple";
+  }
+
+  return "complex";
+}
+
+function isGeminiStreamingEnabled() {
+  return process.env.GEMINI_STREAMING === "true";
+}
+
+function shortLogValue(value: string, limit = 140) {
+  const normalized = value.replace(/\s+/g, " ").trim();
+  return normalized.length > limit ? `${normalized.slice(0, limit)}...` : normalized;
+}
+
+function shouldUseGeminiForTurn(
+  routerResult: LocalRouterResult,
   intent: AdmissionIntent,
   confidence: number,
   handoff: boolean,
-  memory: StudentMemory,
-  leadProfile: LeadProfile,
+  scopeIssue?: ScopeIssue,
 ) {
-  const mode = process.env.GEMINI_MODE ?? "always";
-  const hasContext = profileFactCount(memory, leadProfile) > 0;
+  const mode = geminiMode();
 
-  if (!hasGeminiConfig()) {
+  if (!hasGeminiConfig() || scopeIssue) {
     return false;
   }
 
@@ -1246,40 +1302,369 @@ function shouldUseGemini(
     return false;
   }
 
-  if (mode === "off" || mode === "never") {
+  if (mode === "off") {
     return false;
   }
 
-  if (mode === "always") {
-    return true;
+  if (
+    [
+      "greeting",
+      "thanks",
+      "goodbye",
+      "small_talk",
+      "yes_no_answer",
+      "chip_selection",
+      "human_handoff_request",
+      "unclear_short_message",
+    ].includes(routerResult.intent)
+  ) {
+    return false;
   }
 
-  return (
-    hasContext ||
-    handoff ||
-    intent === "complex_case" ||
-    intent === "application_start" ||
-    confidence < 0.56
+  if (routerResult.confidence >= 0.75 && !routerResult.isComplex) {
+    return false;
+  }
+
+  if (routerResult.confidence >= 0.45 && !routerResult.isComplex) {
+    return false;
+  }
+
+  if (mode === "simple") {
+    return routerResult.intent === "complex_question" && routerResult.isComplex;
+  }
+
+  return Boolean(
+    routerResult.shouldUseGemini ||
+      (routerResult.intent === "complex_question" && routerResult.isComplex) ||
+      (routerResult.isComplex && routerResult.confidence < 0.9) ||
+      (intent === "complex_case" && !handoff) ||
+      (confidence < 0.45 && !routerResult.isShort),
   );
 }
 
-export async function createBotReply(
+function topicClarification(topic: LocalRouterTopic) {
+  switch (topic) {
+    case "courses":
+      return "Давайте сузим: нужна страна, программа, университет или уровень обучения?";
+    case "price":
+      return "Хотите узнать общий бюджет, стоимость по стране, стипендии или расходы на подачу?";
+    case "schedule":
+      return "Вас интересуют дедлайны, когда начинать или план по месяцам?";
+    case "teacher":
+      return "Уточните, пожалуйста: хотите понять, кто сопровождает, как проходит работа или когда подключается менеджер?";
+    case "application":
+      return "Хотите оставить заявку сейчас или сначала собрать данные для менеджера?";
+    case "contact":
+      return "Нужен email, Instagram или форма консультации?";
+    case "documents":
+      return "По документам уточните уровень: бакалавриат, магистратура или виза?";
+    case "language_test":
+      return "Что именно по языку: нужен ли IELTS, какой балл или можно ли без теста?";
+    case "countries":
+      return "Подбираем страну по бюджету, языку, направлению или визовым рискам?";
+    case "visa":
+      return "По визе уточните страну и ситуацию: обычная подача, proof of funds или был отказ?";
+    case "process":
+      return "Разобрать общий процесс, план по месяцам или следующий шаг по вашему профилю?";
+    case "services":
+      return "Уточните, что важно: услуги, стоимость сопровождения, документы или консультация?";
+    default:
+      return "Уточните, пожалуйста, что вас интересует: страны, стоимость, документы, дедлайны или заявка?";
+  }
+}
+
+function buildRouterAnswerOverride(
+  routerResult: LocalRouterResult,
+  previousMemory: StudentMemory | undefined,
+) {
+  switch (routerResult.intent) {
+    case "greeting":
+      return [
+        "Привет! Я на связи.",
+        "Что сейчас важнее понять: страны, стоимость, документы или дедлайны?",
+      ].join("\n");
+    case "thanks":
+      return [
+        "Пожалуйста, рад помочь.",
+        "Можем продолжить текущую тему или быстро перейти к стоимости, документам, дедлайнам или заявке.",
+      ].join("\n");
+    case "goodbye":
+      return "Хорошо, буду на связи. Когда решите продолжить, напишите страну, уровень обучения или вопрос по документам.";
+    case "small_talk":
+      return [
+        "Все хорошо, я на связи.",
+        "Если вернуться к поступлению: вы уже выбрали страну или пока сравниваете варианты?",
+      ].join("\n");
+    case "human_handoff_request":
+      return [
+        "Да, можно передать вопрос менеджеру.",
+        "Чтобы он быстрее включился, оставьте заявку и добавьте страну, уровень обучения, направление, бюджет и срочность.",
+      ].join("\n");
+    case "unclear_short_message":
+      return topicClarification(routerResult.topic);
+    case "yes_no_answer":
+      if (previousMemory?.lastBotQuestion) {
+        if (routerResult.reason === "contextual_no_answer") {
+          return [
+            "Ок, тогда сменим фокус.",
+            "Что разобрать вместо этого: страны, стоимость, документы, дедлайны или заявку?",
+          ].join("\n");
+        }
+
+        return [
+          "Отлично, продолжим.",
+          topicClarification(routerResult.topic),
+        ].join("\n");
+      }
+
+      return [
+        "Понял.",
+        "Уточните, пожалуйста, что именно хотите сделать: подобрать страну, узнать стоимость, проверить документы или оставить заявку?",
+      ].join("\n");
+    case "chip_selection":
+      return [
+        `Ок, продолжаем тему "${localRouterTopicLabel(routerResult.topic)}".`,
+        topicClarification(routerResult.topic),
+      ].join("\n");
+    default:
+      return "";
+  }
+}
+
+function extractLastQuestion(answer: string) {
+  const questions = answer
+    .split(/\n+/)
+    .map((line) => line.trim())
+    .filter((line) => line.endsWith("?"));
+
+  return questions.at(-1)?.slice(0, 240);
+}
+
+function normalizeRepeatText(value: string) {
+  return value
+    .toLocaleLowerCase("ru")
+    .replace(/[!?.,;:()[\]{}"«»'`~@#$%^&*_+=|\\/<>-]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function answerSimilarity(first: string, second: string) {
+  const firstWords = new Set(normalizeRepeatText(first).split(" ").filter(Boolean));
+  const secondWords = new Set(normalizeRepeatText(second).split(" ").filter(Boolean));
+
+  if (firstWords.size === 0 || secondWords.size === 0) {
+    return 0;
+  }
+
+  const intersection = [...firstWords].filter((word) => secondWords.has(word)).length;
+  const union = new Set([...firstWords, ...secondWords]).size;
+
+  return intersection / union;
+}
+
+function sameChips(first: string[] = [], second: string[] = []) {
+  if (first.length === 0 || second.length === 0 || first.length !== second.length) {
+    return false;
+  }
+
+  return first
+    .map(normalizeRepeatText)
+    .every((chip, index) => chip === normalizeRepeatText(second[index]));
+}
+
+function isRepeatedReply(reply: BotReply, previousMemory?: StudentMemory) {
+  if (!previousMemory?.lastBotAnswer) {
+    return false;
+  }
+
+  const sameIntent =
+    previousMemory.lastIntent === reply.intent ||
+    previousMemory.lastBotIntent === reply.intent;
+  const similarAnswer = answerSimilarity(reply.answer, previousMemory.lastBotAnswer) >= 0.78;
+  const repeatedQuestion =
+    Boolean(previousMemory.lastBotQuestion) &&
+    previousMemory.lastBotQuestion === extractLastQuestion(reply.answer);
+
+  return Boolean(
+    similarAnswer ||
+      (sameIntent && sameChips(reply.chips, previousMemory.lastSuggestedChips)) ||
+      (sameIntent && repeatedQuestion),
+  );
+}
+
+function advanceRepeatedReply(
+  reply: BotReply,
+  routerResult: LocalRouterResult,
+  previousMemory?: StudentMemory,
+) {
+  const repeatCount = previousMemory?.repeatedCount ?? 0;
+  const topic = routerResult.topic;
+  const chips =
+    repeatCount >= 1
+      ? ["Выбрать страну", "Посчитать бюджет", "Проверить документы", "Связаться"]
+      : localRouterTopicChips(topic).slice(0, 4);
+  const answer =
+    repeatCount >= 1
+      ? "Хорошо, начнем с простого: выберите один следующий шаг, а я продолжу без повторов."
+      : topic === "unknown"
+        ? "Давайте сузим выбор: выберите один пункт, и я сразу перейду к конкретному следующему шагу."
+        : `Давайте конкретнее по теме "${localRouterTopicLabel(topic)}": выберите ближайший вариант, и я продолжу от него.`;
+
+  console.info("[chat-repeat] repeated=true action=advance_clarification");
+
+  return {
+    ...reply,
+    answer,
+    chips,
+    repeatedAnswerDetected: true,
+  };
+}
+
+function updateConversationMemory(
+  memory: StudentMemory,
+  userMessage: string,
+  reply: BotReply,
+  routerResult: LocalRouterResult,
+  repeated: boolean,
+  previousMemory?: StudentMemory,
+) {
+  const lastBotQuestion = extractLastQuestion(reply.answer);
+  const selectedCourse =
+    routerResult.topic === "courses" &&
+    ["chip_selection", "course_question"].includes(routerResult.intent)
+      ? userMessage.trim().slice(0, 120)
+      : previousMemory?.selectedCourse;
+  const userGoal =
+    routerResult.topic !== "unknown"
+      ? localRouterTopicLabel(routerResult.topic)
+      : previousMemory?.userGoal;
+
+  return {
+    ...memory,
+    lastUserMessage: userMessage.trim().slice(0, 600),
+    lastBotAnswer: reply.answer.trim().slice(0, 1200),
+    lastBotIntent: routerResult.intent,
+    lastBotQuestion,
+    lastSuggestedChips: reply.chips.slice(0, 6),
+    lastTopic: routerResult.topic,
+    selectedCourse,
+    userGoal,
+    unansweredQuestion: lastBotQuestion,
+    repeatedCount: repeated ? (previousMemory?.repeatedCount ?? 0) + 1 : 0,
+  };
+}
+
+function finalizeReply(
+  turn: ChatTurn,
+  draftReply: BotReply,
+  options: {
+    fallbackReason?: string;
+    usedGemini: boolean;
+  },
+) {
+  const repeated = isRepeatedReply(draftReply, turn.previousMemory);
+  const adjustedReply = repeated
+    ? advanceRepeatedReply(draftReply, turn.routerResult, turn.previousMemory)
+    : draftReply;
+  const memory = updateConversationMemory(
+    adjustedReply.memory,
+    turn.userMessage,
+    adjustedReply,
+    turn.routerResult,
+    repeated,
+    turn.previousMemory,
+  );
+
+  return {
+    ...adjustedReply,
+    confidence: turn.routerResult.confidence,
+    memory,
+    topic: turn.routerResult.topic,
+    usedGemini: options.usedGemini,
+    fallbackReason: options.fallbackReason,
+    repeatedAnswerDetected:
+      adjustedReply.repeatedAnswerDetected || repeated || undefined,
+  };
+}
+
+function fallbackReasonFromError(error: unknown) {
+  if (error instanceof GeminiRequestError) {
+    return `gemini_status_${error.status}`;
+  }
+
+  if (error instanceof Error && error.name === "GeminiTimeoutError") {
+    return "gemini_timeout";
+  }
+
+  if (error instanceof SyntaxError) {
+    return "gemini_invalid_json";
+  }
+
+  if (error instanceof Error && /json/i.test(error.message)) {
+    return "gemini_invalid_json";
+  }
+
+  if (error instanceof Error && /empty/i.test(error.message)) {
+    return "gemini_empty_response";
+  }
+
+  return "gemini_error";
+}
+
+function logGeminiFallback(error: unknown) {
+  const reason = fallbackReasonFromError(error);
+
+  if (error instanceof GeminiRequestError) {
+    const cooldownMs = error.retryAfterMs ?? getGeminiCooldownMs();
+    const cooldownNote =
+      cooldownMs > 0 ? ` cooldownMs=${Math.ceil(cooldownMs)}` : "";
+
+    console.warn(
+      `[gemini] error status=${error.status}${cooldownNote} fallback=local`,
+    );
+    return reason;
+  }
+
+  console.warn(`[gemini] error reason=${reason} fallback=local`, error);
+  return reason;
+}
+
+function prepareChatTurn(
   userMessage: string,
   previousMemory?: StudentMemory,
   previousLeadProfile?: LeadProfile,
-): Promise<BotReply> {
+): ChatTurn {
   const turnFacts = extractMessageFacts(userMessage);
-  const intentResult = classifyIntent(
+  const classifierResult = classifyIntent(
     userMessage,
     previousMemory,
     previousLeadProfile,
   );
+  const routerResult = routeMessageLocally(
+    userMessage,
+    previousMemory,
+    previousLeadProfile,
+    classifierResult,
+  );
+  const intentResult = {
+    ...classifierResult,
+    intent: routerResult.admissionIntent,
+    confidence: Math.max(routerResult.confidence, classifierResult.confidence),
+    matchedKeywords: uniqueStrings([
+      ...classifierResult.matchedKeywords,
+      ...routerResult.matchedSignals,
+    ]),
+    needsHuman:
+      classifierResult.needsHuman ||
+      routerResult.intent === "human_handoff_request" ||
+      routerResult.admissionIntent === "complex_case",
+  };
   const memory = updateMemory(previousMemory, userMessage, intentResult.intent);
   const chunks = retrieveKnowledge(intentResult.intent, userMessage, memory);
   const handoff =
     intentResult.needsHuman ||
     chunks.some((chunk) => chunk.requiresHuman) ||
-    intentResult.intent === "complex_case";
+    routerResult.intent === "human_handoff_request";
   const leadProfile = extractLeadProfile(
     previousLeadProfile,
     userMessage,
@@ -1298,9 +1683,13 @@ export async function createBotReply(
       : [],
   );
   const actions = actionForIntent(intentResult.intent, handoff);
+  const routerAnswer = scopeIssue
+    ? ""
+    : buildRouterAnswerOverride(routerResult, previousMemory);
   const baseAnswer = scopeIssue
     ? buildScopeGuardAnswer(scopeIssue)
-    : buildAnswer(
+    : routerAnswer ||
+      buildAnswer(
         intentResult.intent,
         userMessage,
         memory,
@@ -1308,112 +1697,221 @@ export async function createBotReply(
         chunks,
         handoff,
       );
+  const baseChips = scopeIssue
+    ? scopeGuardChips(scopeIssue)
+    : routerAnswer
+      ? localRouterTopicChips(routerResult.topic)
+      : chipsForIntent(intentResult.intent);
   const baseReply: BotReply = {
     answer: baseAnswer,
     engine: "local",
     intent: intentResult.intent,
-    confidence: intentResult.confidence,
+    confidence: routerResult.confidence,
     actions,
     links,
-    chips: scopeIssue ? scopeGuardChips(scopeIssue) : chipsForIntent(intentResult.intent),
+    chips:
+      isCasualGeneralMessage(userMessage, intentResult.intent) && !routerAnswer
+        ? [
+            "Пока выбираю страну",
+            "Хочу понять бюджет",
+            "Какие документы нужны?",
+            "С чего начать?",
+          ]
+        : baseChips,
     sources: chunks.map((chunk) => chunk.id),
     memory,
     leadProfile,
     handoff,
+    topic: routerResult.topic,
+    usedGemini: false,
   };
-
-  if (scopeIssue) {
-    return baseReply;
-  }
-
-  const useGemini = shouldUseGemini(
+  const useGemini = shouldUseGeminiForTurn(
+    routerResult,
     intentResult.intent,
     intentResult.confidence,
     handoff,
-    memory,
-    leadProfile,
+    scopeIssue,
   );
 
-  if (isCasualGeneralMessage(userMessage, intentResult.intent) && !useGemini) {
-    return {
-      ...baseReply,
-      chips: [
-        "Пока выбираю страну",
-        "Хочу понять бюджет",
-        "Какие документы нужны?",
-        "С чего начать?",
-      ],
-    };
-  }
+  console.info(
+    `[chat-router] normalized="${shortLogValue(
+      routerResult.normalizedMessage,
+    )}" intent=${routerResult.intent} topic=${routerResult.topic} confidence=${routerResult.confidence.toFixed(
+      2,
+    )} gemini=${useGemini} reason=${routerResult.reason}`,
+  );
 
-  if (!useGemini) {
-    return baseReply;
-  }
+  return {
+    userMessage,
+    previousMemory,
+    previousLeadProfile,
+    turnFacts,
+    routerResult,
+    intentResult,
+    memory,
+    chunks,
+    handoff,
+    leadProfile,
+    scopeIssue,
+    baseReply,
+    useGemini,
+  };
+}
 
-  try {
-    const geminiReply = await askGemini({
-      userMessage,
-      intent: intentResult.intent,
-      memory,
-      leadProfile,
-      chunks,
-      handoff,
-      confidence: intentResult.confidence,
-    });
-    const geminiLeadProfilePatch = {
-      ...(geminiReply.leadProfilePatch ?? {}),
-      ...(turnFacts.countrySelectionMode === "replace" &&
-      turnFacts.countries.length > 0
-        ? { targetCountries: turnFacts.countries }
-        : {}),
-    };
-    const geminiLeadProfile = mergeLeadProfile(
-      leadProfile,
-      geminiLeadProfilePatch,
-      {
-        excludedTargetCountries: turnFacts.excludedCountries,
-        replaceTargetCountries: turnFacts.countrySelectionMode === "replace",
-      },
-    );
-    const geminiHandoff = handoff || Boolean(geminiReply.handoff);
-    const acceptsModelAnswer = Boolean(
-      geminiReply.answer &&
-        !isWeakModelAnswer(geminiReply.answer, memory, geminiLeadProfile),
-    );
-    const geminiAnswer = acceptsModelAnswer ? geminiReply.answer : baseAnswer;
+async function buildGeminiReply(
+  turn: ChatTurn,
+  askModel: GeminiAskFunction,
+) {
+  const geminiReply = await askModel({
+    userMessage: turn.userMessage,
+    intent: turn.intentResult.intent,
+    memory: turn.memory,
+    leadProfile: turn.leadProfile,
+    chunks: turn.chunks,
+    handoff: turn.handoff,
+    confidence: turn.routerResult.confidence,
+  });
+  const geminiLeadProfilePatch = {
+    ...(geminiReply.leadProfilePatch ?? {}),
+    ...(turn.turnFacts.countrySelectionMode === "replace" &&
+    turn.turnFacts.countries.length > 0
+      ? { targetCountries: turn.turnFacts.countries }
+      : {}),
+  };
+  const geminiLeadProfile = mergeLeadProfile(
+    turn.leadProfile,
+    geminiLeadProfilePatch,
+    {
+      excludedTargetCountries: turn.turnFacts.excludedCountries,
+      replaceTargetCountries: turn.turnFacts.countrySelectionMode === "replace",
+    },
+  );
+  const geminiHandoff = turn.handoff || Boolean(geminiReply.handoff);
+  const acceptsModelAnswer = Boolean(
+    geminiReply.answer &&
+      !isWeakModelAnswer(geminiReply.answer, turn.memory, geminiLeadProfile),
+  );
+  const geminiAnswer = acceptsModelAnswer
+    ? geminiReply.answer
+    : turn.baseReply.answer;
 
-    return {
-      ...baseReply,
+  return finalizeReply(
+    turn,
+    {
+      ...turn.baseReply,
       answer: geminiAnswer,
       engine: acceptsModelAnswer ? "atlas" : "atlas-fallback",
-      actions: actionForIntent(intentResult.intent, geminiHandoff),
+      actions: actionForIntent(turn.intentResult.intent, geminiHandoff),
       chips:
         geminiReply.chips && geminiReply.chips.length > 0
           ? geminiReply.chips
-          : baseReply.chips,
+          : turn.baseReply.chips,
       leadProfile: geminiLeadProfile,
       handoff: geminiHandoff,
-    };
-  } catch (error) {
-    if (process.env.NODE_ENV !== "production") {
-      if (error instanceof GeminiRequestError) {
-        const cooldownMs = error.retryAfterMs ?? getGeminiCooldownMs();
-        const cooldownNote =
-          cooldownMs > 0
-            ? ` Using local replies for about ${Math.ceil(cooldownMs / 1000)}s.`
-            : "";
+    },
+    {
+      fallbackReason: acceptsModelAnswer ? undefined : "weak_gemini_answer",
+      usedGemini: acceptsModelAnswer,
+    },
+  );
+}
 
-        console.warn(
-          `Atlas model fallback: Gemini returned ${error.status}.${cooldownNote}`,
-        );
-      } else {
-        console.error("Atlas model fallback:", error);
-      }
-    }
-
-    return {
-      ...baseReply,
-      engine: "atlas-fallback",
-    };
+async function createBotReplyFromTurn(turn: ChatTurn) {
+  if (!turn.useGemini) {
+    return finalizeReply(turn, turn.baseReply, { usedGemini: false });
   }
+
+  try {
+    return await buildGeminiReply(turn, askGemini);
+  } catch (error) {
+    const fallbackReason = logGeminiFallback(error);
+
+    return finalizeReply(
+      turn,
+      {
+        ...turn.baseReply,
+        engine: "atlas-fallback",
+      },
+      {
+        fallbackReason,
+        usedGemini: false,
+      },
+    );
+  }
+}
+
+export async function createBotReply(
+  userMessage: string,
+  previousMemory?: StudentMemory,
+  previousLeadProfile?: LeadProfile,
+): Promise<BotReply> {
+  const turn = prepareChatTurn(userMessage, previousMemory, previousLeadProfile);
+
+  return createBotReplyFromTurn(turn);
+}
+
+function streamEvent(controller: ReadableStreamDefaultController<Uint8Array>, value: unknown) {
+  const encoder = new TextEncoder();
+  controller.enqueue(encoder.encode(`${JSON.stringify(value)}\n`));
+}
+
+function streamGeminiReply(turn: ChatTurn) {
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      void (async () => {
+        try {
+          const reply = await buildGeminiReply(turn, (input) =>
+            askGeminiStream(input, {
+              onAnswerDelta(delta) {
+                if (delta) {
+                  streamEvent(controller, { text: delta, type: "delta" });
+                }
+              },
+            }),
+          );
+
+          streamEvent(controller, { reply, type: "final" });
+        } catch (error) {
+          const fallbackReason = logGeminiFallback(error);
+          const reply = finalizeReply(
+            turn,
+            {
+              ...turn.baseReply,
+              engine: "atlas-fallback",
+            },
+            {
+              fallbackReason,
+              usedGemini: false,
+            },
+          );
+
+          streamEvent(controller, { reply, type: "fallback" });
+        } finally {
+          controller.close();
+        }
+      })();
+    },
+  });
+
+  return new Response(stream, {
+    headers: {
+      "Cache-Control": "no-cache, no-transform",
+      "Content-Type": "application/x-ndjson; charset=utf-8",
+      "X-Accel-Buffering": "no",
+    },
+  });
+}
+
+export async function createBotResponse(
+  userMessage: string,
+  previousMemory?: StudentMemory,
+  previousLeadProfile?: LeadProfile,
+) {
+  const turn = prepareChatTurn(userMessage, previousMemory, previousLeadProfile);
+
+  if (turn.useGemini && isGeminiStreamingEnabled()) {
+    return streamGeminiReply(turn);
+  }
+
+  return Response.json(await createBotReplyFromTurn(turn));
 }

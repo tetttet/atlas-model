@@ -35,6 +35,47 @@ type DeleteConfirmation =
       kind: "all";
     };
 
+type ChatStreamEvent =
+  | {
+      text: string;
+      type: "delta";
+    }
+  | {
+      reply: BotReply;
+      type: "fallback" | "final";
+    };
+
+function isStreamingChatResponse(response: Response) {
+  return (
+    response.headers.get("content-type")?.includes("application/x-ndjson") ??
+    false
+  );
+}
+
+function parseChatStreamEvent(line: string): ChatStreamEvent | null {
+  const value = JSON.parse(line) as Partial<ChatStreamEvent>;
+
+  if (value.type === "delta" && typeof value.text === "string") {
+    return {
+      text: value.text,
+      type: "delta",
+    };
+  }
+
+  if (
+    (value.type === "final" || value.type === "fallback") &&
+    value.reply &&
+    typeof value.reply === "object"
+  ) {
+    return {
+      reply: value.reply as BotReply,
+      type: value.type,
+    };
+  }
+
+  return null;
+}
+
 export function AdmissionsChat() {
   const [chats, setChats] = useState<ChatSession[]>([initialChat]);
   const [activeChatId, setActiveChatId] = useState(initialChat.id);
@@ -348,7 +389,149 @@ export function AdmissionsChat() {
         throw new Error("Request failed");
       }
 
+      if (isStreamingChatResponse(response)) {
+        const body = response.body;
+
+        if (!body) {
+          throw new Error("Streaming response has no body");
+        }
+
+        const assistantMessageId = createId();
+        const reader = body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        let hasFinalReply = false;
+
+        setTypingMessageId(null);
+        setLoadingChatId(null);
+        setChats((current) =>
+          current.map((chat) =>
+            chat.id === chatId
+              ? {
+                  ...chat,
+                  updatedAt: Date.now(),
+                  messages: [
+                    ...chat.messages,
+                    {
+                      id: assistantMessageId,
+                      role: "assistant" as const,
+                      content: "",
+                    },
+                  ].slice(-maxStoredMessages),
+                }
+              : chat,
+          ),
+        );
+
+        function applyStreamReply(reply: BotReply) {
+          hasFinalReply = true;
+
+          if (reply.engine === "atlas") {
+            console.log("Atlas отправил AI-ответ");
+          }
+
+          setChats((current) =>
+            current.map((chat) =>
+              chat.id === chatId
+                ? {
+                    ...chat,
+                    updatedAt: Date.now(),
+                    memory: reply.memory,
+                    leadProfile: reply.leadProfile,
+                    messages: chat.messages
+                      .map((message) =>
+                        message.id === assistantMessageId
+                          ? {
+                              ...message,
+                              content: reply.answer,
+                              reply,
+                            }
+                          : message,
+                      )
+                      .slice(-maxStoredMessages),
+                  }
+                : chat,
+            ),
+          );
+        }
+
+        function applyStreamDelta(textDelta: string) {
+          setChats((current) =>
+            current.map((chat) =>
+              chat.id === chatId
+                ? {
+                    ...chat,
+                    updatedAt: Date.now(),
+                    messages: chat.messages.map((message) =>
+                      message.id === assistantMessageId
+                        ? {
+                            ...message,
+                            content: `${message.content}${textDelta}`,
+                          }
+                        : message,
+                    ),
+                  }
+                : chat,
+            ),
+          );
+        }
+
+        while (true) {
+          const { done, value: chunk } = await reader.read();
+
+          if (done) {
+            break;
+          }
+
+          buffer += decoder.decode(chunk, { stream: true });
+
+          while (buffer.includes("\n")) {
+            const newlineIndex = buffer.indexOf("\n");
+            const line = buffer.slice(0, newlineIndex).trim();
+            buffer = buffer.slice(newlineIndex + 1);
+
+            if (!line) {
+              continue;
+            }
+
+            const event = parseChatStreamEvent(line);
+
+            if (!event) {
+              continue;
+            }
+
+            if (event.type === "delta") {
+              applyStreamDelta(event.text);
+            } else {
+              applyStreamReply(event.reply);
+            }
+          }
+        }
+
+        const finalLine = buffer.trim();
+
+        if (finalLine) {
+          const event = parseChatStreamEvent(finalLine);
+
+          if (event?.type === "delta") {
+            applyStreamDelta(event.text);
+          } else if (event) {
+            applyStreamReply(event.reply);
+          }
+        }
+
+        if (!hasFinalReply) {
+          throw new Error("Streaming response ended without final reply");
+        }
+
+        return;
+      }
+
       const reply = (await response.json()) as BotReply;
+      if (reply.engine === "atlas") {
+        console.log("Atlas отправил AI-ответ");
+      }
+
       const assistantMessage = {
         id: createId(),
         role: "assistant" as const,

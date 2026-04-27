@@ -48,20 +48,23 @@ Route: `POST /api/chat`
 
 Flow:
 1. Validate message length.
-2. Classify intent.
-3. Update lightweight memory.
-4. Retrieve relevant knowledge chunks.
-5. Extract lead profile fields.
-6. For simple questions, answer with deterministic grounded logic.
-7. For complex, uncertain, application-start or handoff cases, call Gemini server-side.
-8. Return answer, chips, links, actions, sources, memory and lead profile.
+2. Normalize the message and run the local router.
+3. Detect intent/topic/confidence and use conversation context for short replies.
+4. Update lightweight memory.
+5. Retrieve relevant knowledge chunks.
+6. Extract lead profile fields.
+7. For simple and standard questions, answer with deterministic grounded logic.
+8. For genuinely complex/uncertain cases, call Gemini server-side with timeout and local fallback.
+9. Return answer, chips, links, actions, sources, memory and lead profile.
 
 Gemini:
 - key is stored only in `GEMINI_API_KEY`;
-- model defaults to `gemini-flash-latest`;
-- `GEMINI_MODE=complex` keeps token usage low;
-- `GEMINI_MODE=always` routes every turn to Gemini;
-- 429 responses pause model calls briefly via `GEMINI_RATE_LIMIT_COOLDOWN_MS`;
+- model defaults to a stable Flash model;
+- `GEMINI_MODE=off` keeps everything local;
+- `GEMINI_MODE=simple` uses Gemini only for explicit complex turns;
+- `GEMINI_MODE=complex` keeps local router first and uses Gemini as advanced fallback;
+- Gemini has `GEMINI_TIMEOUT_MS`, `GEMINI_MAX_OUTPUT_TOKENS`, and optional streaming via `GEMINI_STREAMING`;
+- 429/5xx responses pause model calls briefly via cooldown settings;
 - client never receives the API key.
 
 ## Knowledge base
